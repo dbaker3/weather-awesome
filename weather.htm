@@ -1,0 +1,389 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title></title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <style>
+        </style>
+        <link rel="stylesheet" type="text/css" href="css/weather-icons.min.css">
+        <script src="https://kit.fontawesome.com/588b56eb4b.js" crossorigin="anonymous"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.min.js"></script>
+
+        <script>
+
+            var zipcode = 10001;
+            var latlong = [];
+
+            var fineLocation; // location based on Lat, Long - contains URLs to other json endpoints
+            var gridData; // forecast data specific to grid
+            var observationStation; // location's Observation Station
+            var latestObservation;
+            var xmlLatestObservation; // seems to be updated more frequently that JSON
+            var forecast; // for fineLocation
+
+            var wxdata;
+            var hourly = [[],[],[],[],[],[],[]];
+
+            Date.prototype.addDays = function(days) {
+                var date = new Date(this.valueOf());
+                date.setDate(date.getDate() + days);
+                return date;
+            }
+
+            main();
+
+            async function main() {
+                latlong = await getLatLong();
+                //latestObservation = await getWxData();
+                await getWxData();
+
+                document.getElementById('location').innerHTML = fineLocation.properties.relativeLocation.properties.city + ', ' + fineLocation.properties.relativeLocation.properties.state; //observationStation.features[0].properties.name;
+                //document.getElementById('currentTemp').innerHTML = Math.round(latestObservation.properties.temperature.value * 1.8 + 32) + '&#176 F';
+                document.getElementById('currentTemp').innerHTML = Math.round(getXmlValue(xmlLatestObservation, 'temp_f')) + '&#176 F';
+                //document.getElementById('currentDesc').innerHTML = latestObservation.properties.textDescription;
+                var desc = getXmlValue(xmlLatestObservation, 'weather');
+                document.getElementById('currentDesc').innerHTML = desc;
+                document.getElementById('observationDesc').innerHTML = observationStation.features[0].properties.name;
+                document.getElementById('observationTime').innerHTML = 'at ' + new Date(latestObservation.properties.timestamp).toLocaleString();
+                setIcon(desc);
+                drawChartHourlyTemp(0);
+                drawChartHourlyPrecip(0);
+            }
+
+            function hourlyTest() {
+                for (var i=0; i < gridData.properties.temperature.values.length; i++) {
+                    if (new Date().toLocaleDateString() == new Date(gridData.properties.temperature.values[i].validTime.split('/')[0]).toLocaleDateString()) {
+                        console.log((new Date(gridData.properties.temperature.values[i].validTime.split('/')[0]).toLocaleString()));
+                        console.log(Math.round(gridData.properties.temperature.values[i].value * 1.8 + 32) + ' F');
+                    }
+                }
+/*
+                for (var i=0; i < gridData.properties.probabilityOfPrecipitation.values.length; i++) {
+                  console.log((new Date(gridData.properties.probabilityOfPrecipitation.values[i].validTime.split('/')[0]).toLocaleString()));
+                  console.log(Math.round(gridData.properties.probabilityOfPrecipitation.values[i].value) + '%');
+                } */
+            }
+
+            function getChartLabelHourlyTemp(day) {
+                var data = []; 
+                for (var i=0; i < gridData.properties.temperature.values.length; i++) {
+                    if (new Date().addDays(day).toLocaleDateString() == new Date(gridData.properties.temperature.values[i].validTime.split('/')[0]).toLocaleDateString()) {
+                        data.push((new Date(gridData.properties.temperature.values[i].validTime.split('/')[0]).getHours() + ':00'));
+                    }
+                }
+                return data;
+            }
+
+            function getChartDataHourlyTemp(day) {
+                var data = []; 
+                for (var i=0; i < gridData.properties.temperature.values.length; i++) {
+                    if (new Date().addDays(day).toLocaleDateString() == new Date(gridData.properties.temperature.values[i].validTime.split('/')[0]).toLocaleDateString()) {
+                        data.push(Math.round(gridData.properties.temperature.values[i].value * 1.8 + 32));
+                    }
+                }
+                return data;
+            }
+
+            function getChartLabelHourlyPrecip(day) {
+                var data = []; 
+                for (var i=0; i < gridData.properties.probabilityOfPrecipitation.values.length; i++) {
+                    if (new Date().addDays(day).toLocaleDateString() == new Date(gridData.properties.probabilityOfPrecipitation.values[i].validTime.split('/')[0]).toLocaleDateString()) {
+                        data.push((new Date(gridData.properties.probabilityOfPrecipitation.values[i].validTime.split('/')[0]).getHours() + ':00'));
+                    }
+                }
+                return data;
+            }
+
+            function getChartDataHourlyPrecip(day) {
+                var data = []; 
+                for (var i=0; i < gridData.properties.probabilityOfPrecipitation.values.length; i++) {
+                    if (new Date().addDays(day).toLocaleDateString() == new Date(gridData.properties.probabilityOfPrecipitation.values[i].validTime.split('/')[0]).toLocaleDateString()) {
+                        data.push(Math.round(gridData.properties.probabilityOfPrecipitation.values[i].value));
+                    }
+                }
+                return data;
+            }
+
+
+            function drawChartHourlyTemp(day) {
+                var ctx = document.getElementById('hourlyTemp').getContext('2d');
+                var myChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: getChartLabelHourlyTemp(day), 
+                        datasets: [{
+                            label: 'Degrees F',
+                            data: getChartDataHourlyTemp(day), 
+                            fill: false,
+                            backgroundColor: [
+                                'rgba(255, 255, 255, 0)'
+                            ],
+                            borderColor: [
+                                'rgba(0, 0, 0, 0.7)'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            yAxes: [{
+                                ticks: {
+                                    min: (getChartDataHourlyTemp(day).sort()[0] - (getChartDataHourlyTemp(day).sort()[0] % 5)) - 5,
+                                    max: (getChartDataHourlyTemp(day).sort()[(getChartDataHourlyTemp(day)).length-1] - (getChartDataHourlyTemp(day).sort()[(getChartDataHourlyTemp(day)).length-1]) % 5) + 10
+                                }
+                            }]
+                        }
+                    }
+                }); 
+                document.getElementById('HourlyTempHead').innerHTML = "Temperature Forecast"; 
+            }
+
+            function drawChartHourlyPrecip(day) {
+                var ctx = document.getElementById('hourlyPrecip').getContext('2d');
+                var myChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: getChartLabelHourlyPrecip(day),
+                        datasets: [{
+                            label: '% chance',
+                            data: getChartDataHourlyPrecip(day),
+                            fill: false,
+                            backgroundColor: [
+                                'rgba(255, 255, 255, 0)'
+                            ],
+                            borderColor: [
+                                'rgba(0, 0, 0, 0.7)'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            yAxes: [{
+                                ticks: {
+                                    min: 0, //(getChartDataHourlyPrecip().sort()[0] - (getChartDataHourlyPrecip().sort()[0] % 5)) - 5,
+                                    max: 100, //(getChartDataHourlyPrecip().sort()[(getChartDataHourlyPrecip()).length-1] - (getChartDataHourlyPrecip().sort()[(getChartDataHourlyPrecip()).length-1]) % 5) + 10
+                                }
+                            }]
+                        }
+                    }
+                }); 
+                 document.getElementById('HourlyPrecipHead').innerHTML = "Precipitation Forecast";         
+            }
+
+
+            function setIcon(desc) {
+                if (desc == 'Mostly Cloudy' || desc == 'Overcast') {
+                    (document.getElementById('icon')).classList.add('wi-cloud');
+                }
+                else if (desc == 'Partly Cloudy' || desc == 'Partly Sunny') {
+                    (document.getElementById('icon')).classList.add('wi-day-cloudy');
+                }
+                else if (desc == 'Light Rain' || desc == 'Light Rain Fog/Mist') {
+                    (document.getElementById('icon')).classList.add('wi-showers');
+                }
+                else if (desc == 'Rain Fog/Mist') {
+                    (document.getElementById('icon')).classList.add('wi-rain');
+                }
+                else if (desc == 'Fog/Mist') {
+                    (document.getElementById('icon')).classList.add('wi-fog');
+                }
+                else if (desc == 'A Few Clouds') {
+                    (document.getElementById('icon')).classList.add('wi-day-sunny');
+                }
+                else if (desc == 'Sunny') {
+                    (document.getElementById('icon')).classList.add('wi-day-sunny');
+                }
+                else if (desc == 'T-storms' || desc == 'Thunderstorm' || desc == 'Thunderstorm in Vicinity') {
+                    (document.getElementById('icon')).classList.add('wi-thunderstorm');
+                }
+            }
+
+
+            function getXmlValue(xmlDoc, tagName) {
+                return xmlDoc.getElementsByTagName(tagName)[0].childNodes[0].nodeValue;
+            }
+
+            fetch('https://api.weather.gov/gridpoints/MRX/129,79/forecast/hourly', {cache: "no-store"})
+                .then(response => {
+                    return response.json()
+                })
+                .then(data => {
+                    wxdata = data;
+                    processData(wxdata); 
+                })
+                .catch(err => {
+                    // Do something for an error here
+                })
+
+            function processData(wxdata) {
+                var content = '<table>';
+
+                for (var j = 0; j < 7; j++) {
+                    console.log(j);
+                    for (var i = 0; i < wxdata.properties.periods.length; i++) {
+                        var date = new Date();
+                        date.setDate(date.getDate() + j);
+
+                        if ((new Date(wxdata.properties.periods[i].startTime)).toDateString() ==  date.toDateString()) {
+                            hourly[j].push(wxdata.properties.periods[i]);
+                        }
+                        
+                        //var date = new Date(wxdata.properties.periods[i].startTime).toLocaleString();
+                        //var temp = wxdata.properties.periods[i].temperature; 
+                        //var unit = wxdata.properties.periods[i].temperatureUnit; 
+                        //content = content + '<tr><td>' + date + '</td><td>' + temp + '&#176 ' + unit + '</td></tr>';
+                      } 
+                   }
+                //content = content + '</table>';
+                //document.querySelector('body').innerHTML = content;
+
+            }
+
+            async function getWxData() {
+                // Find grid based on long/lat
+                var response = await fetch('https://api.weather.gov/points/' + latlong[0] + ',' + latlong[1], {cache: "no-store"});
+                fineLocation = await response.json();
+             
+                // TODO: get other forecast/hourly data 
+                console.log(fineLocation);
+
+                var response = gridData = await fetch(fineLocation.properties.forecastGridData, {cache: "no-store"});
+                gridData = await response.json();
+
+                // Find nearest Observation Station
+                var response = await fetch(fineLocation.properties.observationStations, {cache: "no-store"});
+                observationStation = await response.json();
+
+//                locationName = observationStation.features[0].properties.name;
+               
+                // Get latest conditions from Obs. Sta.
+                var response = await fetch(observationStation.observationStations[0] + '/observations/latest/', {cache: "no-store"});
+                latestObservation = await response.json(); 
+                
+                var stationId = observationStation.features[0].properties.stationIdentifier;
+
+                // Latest obsv. in XML
+                var response = await fetch('https://w1.weather.gov/xml/current_obs/' + stationId + '.xml', {cache: "no-store"});
+                var xmldata = await response.text();
+                var parser = new DOMParser();
+                xmlLatestObservation = parser.parseFromString(xmldata, 'text/xml');
+
+                //xmlDoc.getElementsByTagName('temp_f')[0].childNodes[0].nodeValue;
+                
+                // forecast
+                var response = await fetch (fineLocation.properties.forecast, {cache: "no-store"});
+                forecast = await response.json();
+
+            }
+
+
+            async function getLatLong() {
+                if (getUrlParameter('zip')) { 
+                    zipcode = getUrlParameter('zip');
+                }
+                var ll = [];
+                var response = await fetch('https://public.opendatasoft.com/api/records/1.0/search/?dataset=us-zip-code-latitude-and-longitude&q=' + zipcode, {cache: "no-store"});
+                var json = await response.json();
+//                latlong[0] = json.records[0].fields.latitude;
+//                latlong[1] = json.records[0].fields.longitude;
+                ll[0] = json.records[0].fields.latitude;
+                ll[1] = json.records[0].fields.longitude;
+                return await ll;
+                //getData();
+
+                /*
+
+                fetch('https://public.opendatasoft.com/api/records/1.0/search/?dataset=us-zip-code-latitude-and-longitude&q=' + zipcode)
+                    .then(response => {
+                        return response.json()
+                    })
+                    .then(data => {
+                        latlong[0] = data.records[0].fields.latitude;
+                        latlong[1] = data.records[0].fields.longitude;
+                    })
+                    .catch(err => {
+                        // Do something for an error here
+                    }) */
+            }
+
+
+            function todayHourly() {
+                for (var i = 0; i < hourly[0].length; i++) {
+                    console.log(hourly[0][i].startTime + ' ' + hourly[0][i].temperature);
+                }
+            }
+
+// https://api.weather.gov/stations/KTRI/observations/latest
+
+            function getUrlParameter(name) {
+                name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+                var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+                var results = regex.exec(location.search);
+                return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+            };
+
+
+
+
+
+        </script>
+
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap');
+            body {
+                font-family: Lato;
+            }
+            #location {
+                margin-bottom: 0;
+            }
+            #currentTemp {
+                font-size: 2.5em;
+                font-weight: bold;
+            }
+            #icon {
+                font-size: 4em;
+                margin-right: 10px;
+            }
+            #observationDesc {
+                font-size: 0.75em;
+                margin-bottom: 0em;
+            }
+            #observationTime {
+                font-size: 0.75em;
+                margin-bottom: 1em;
+            }
+        </style>
+
+    </head>
+    <body>
+        <h1 style="font-size: 3rem; margin: 1rem 0;"}>Weather Awesome</h1>
+        <h2 id="location">Loading...</h2>
+        <div id="observationDesc"></div>
+        <div id="observationTime"></div>
+        <i id="icon" class="wi"></i>
+        <div style="display:inline-block;">
+            <div id="currentDesc"></div>
+            <div id="currentTemp"></div>
+        </div>
+
+        <!-- <div id="currentTempxml"></div> -->
+
+        <h2 id="HourlyTempHead" style="margin: 2em 0 0 0;"></h2>
+        <div style="max-width:800px;">
+            <canvas id="hourlyTemp">
+        </div>
+
+        <h2 id="HourlyPrecipHead" style="margin: 2em 0 0 0;"></h2>
+        <div style="max-width:800px;">
+            <canvas id="hourlyPrecip">
+        </div>
+
+        <script> 
+       </script>
+    </body>
+</html>
+
+   
